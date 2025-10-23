@@ -16,13 +16,20 @@ export default function Page() {
   const [data, setData] = useState([]);
   const [latest, setLatest] = useState(null);
 
+  const API_BASE =
+    typeof window !== "undefined" &&
+    window.location.hostname.includes("localhost")
+      ? "http://localhost:3000"
+      : "https://abhi.schema.cv";
+
   const fetchData = async () => {
     try {
-      const res = await fetch("https://abhi.schema.cv/api/telemetry");
+      const res = await fetch(`${API_BASE}/api/telemetry`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json.ok) {
-        setData(json.history);
-        setLatest(json.latest);
+        setData(json.history || []);
+        setLatest(json.latest || null);
       }
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -31,9 +38,14 @@ export default function Page() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 2000); // poll every 2s
+    const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  // Calculate heartbeat interval for animation
+  const heartRateInterval = latest
+    ? 60 / latest.heartRate // in seconds per beat
+    : 1;
 
   return (
     <div style={{ fontFamily: "sans-serif", padding: 20 }}>
@@ -42,21 +54,31 @@ export default function Page() {
       {!latest ? (
         <p style={{ color: "#666" }}>Waiting for data...</p>
       ) : (
-        <div style={{ marginBottom: 20 }}>
-          <h3>
-            Current SpO₂:{" "}
-            <span style={{ color: "crimson" }}>
-              {latest.spo2?.toFixed(1)} %
-            </span>{" "}
-            | Heart Rate:{" "}
-            <span style={{ color: "royalblue" }}>
-              {latest.heartRate?.toFixed(1)} bpm
-            </span>
-          </h3>
-          <small>
-            Updated at{" "}
-            {new Date(latest.serverTimestamp).toLocaleTimeString()}
-          </small>
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            className="heart"
+            style={{
+              width: 40,
+              height: 40,
+              color: "crimson",
+              animation: `pulse ${heartRateInterval}s infinite`,
+            }}
+          >
+            ❤️
+          </div>
+          <div>
+            <h3>
+              Current SpO₂:{" "}
+              <span style={{ color: "crimson" }}>{latest.spo2?.toFixed(1)} %</span>{" "}
+              | Heart Rate:{" "}
+              <span style={{ color: "royalblue" }}>
+                {latest.heartRate?.toFixed(1)} bpm
+              </span>
+            </h3>
+            <small>
+              Updated at {new Date(latest.serverTimestamp).toLocaleTimeString()}
+            </small>
+          </div>
         </div>
       )}
 
@@ -92,6 +114,27 @@ export default function Page() {
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Heart pulse animation */}
+      <style jsx>{`
+        @keyframes pulse {
+          0% {
+            transform: scale(1);
+          }
+          25% {
+            transform: scale(1.3);
+          }
+          50% {
+            transform: scale(1);
+          }
+          75% {
+            transform: scale(1.3);
+          }
+          100% {
+            transform: scale(1);
+          }
+        }
+      `}</style>
     </div>
   );
 }
