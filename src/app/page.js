@@ -1,56 +1,97 @@
 "use client";
+
 import { useEffect, useState } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 export default function Page() {
-  const [temperature, setTemperature] = useState(null);
-  const [ledState, setLedState] = useState(false);
+  const [data, setData] = useState([]);
+  const [latest, setLatest] = useState(null);
 
-  // Fetch temperature every second
+  const fetchData = async () => {
+    try {
+      const res = await fetch("/api/telemetry");
+      const json = await res.json();
+      if (json.ok) {
+        setData(json.history);
+        setLatest(json.latest);
+      }
+    } catch (err) {
+      console.error("Error fetching data:", err);
+    }
+  };
+
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const res = await fetch("/api/temperature");
-      const data = await res.json();
-      setTemperature(data.temperature);
-    }, 1000);
-
+    fetchData();
+    const interval = setInterval(fetchData, 2000); // poll every 2s
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch LED state on load
-  useEffect(() => {
-    const fetchLed = async () => {
-      const res = await fetch("/api/led");
-      const data = await res.json();
-      setLedState(data.state);
-    };
-    fetchLed();
-  }, []);
-
-  // Toggle LED
-  const toggleLed = async () => {
-    const newState = !ledState;
-    await fetch("/api/led", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: newState }),
-    });
-    setLedState(newState);
-  };
-
   return (
-    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
-      <h1>Temperature: {temperature ? temperature.toFixed(2) : "--"} °C</h1>
-      <button
-        onClick={toggleLed}
-        style={{
-          marginTop: "20px",
-          padding: "10px 20px",
-          fontSize: "16px",
-          cursor: "pointer",
-        }}
-      >
-        {ledState ? "Turn LED Off" : "Turn LED On"}
-      </button>
+    <div style={{ fontFamily: "sans-serif", padding: 20 }}>
+      <h1 style={{ marginBottom: 16 }}>MAX30100 Live Dashboard</h1>
+
+      {!latest ? (
+        <p style={{ color: "#666" }}>Waiting for data...</p>
+      ) : (
+        <div style={{ marginBottom: 20 }}>
+          <h3>
+            Current SpO₂:{" "}
+            <span style={{ color: "crimson" }}>
+              {latest.spo2?.toFixed(1)} %
+            </span>{" "}
+            | Heart Rate:{" "}
+            <span style={{ color: "royalblue" }}>
+              {latest.heartRate?.toFixed(1)} bpm
+            </span>
+          </h3>
+          <small>
+            Updated at{" "}
+            {new Date(latest.serverTimestamp).toLocaleTimeString()}
+          </small>
+        </div>
+      )}
+
+      <div style={{ width: "100%", height: 400 }}>
+        <ResponsiveContainer>
+          <LineChart
+            data={data.map((d) => ({
+              time: new Date(d.serverTimestamp).toLocaleTimeString(),
+              spo2: d.spo2,
+              heartRate: d.heartRate,
+            }))}
+            margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="spo2"
+              stroke="#dc2626"
+              dot={false}
+              strokeWidth={2}
+            />
+            <Line
+              type="monotone"
+              dataKey="heartRate"
+              stroke="#2563eb"
+              dot={false}
+              strokeWidth={2}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
