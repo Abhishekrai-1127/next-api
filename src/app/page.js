@@ -18,7 +18,7 @@ export default function Page() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch("/api/telemetry");
+      const res = await fetch("https://abhi.schema.cv/api/telemetry");
       const json = await res.json();
       if (json.ok) {
         setData(json.history);
