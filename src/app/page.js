@@ -23,17 +23,20 @@ export default function Page() {
       : "https://abhi.schema.cv";
 
   const fetchData = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/telemetry`);
-      const json = await res.json();
-      if (json.ok) {
-        setData(json.history || []);
-        setLatest(json.latest || null);
-      }
-    } catch (err) {
-      console.error("Fetch error:", err);
+  try {
+    const res = await fetch(`${API_BASE}/api/telemetry`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const json = text ? JSON.parse(text) : {};
+    if (json.ok) {
+      setData(json.history || []);
+      setLatest(json.latest || null);
     }
-  };
+  } catch (err) {
+    console.error("Error fetching data:", err);
+  }
+};
+
 
   useEffect(() => {
     fetchData();

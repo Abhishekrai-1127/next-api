@@ -17,7 +17,6 @@ export async function POST(req) {
       timestamp,
     } = await req.json();
 
-    // Only store if HR and SpO2 are valid
     if (!validHR || !validSPO2) {
       console.warn("⚠️ Ignored invalid reading");
       return Response.json({ ok: false, skipped: true });
@@ -35,14 +34,13 @@ export async function POST(req) {
       serverTimestamp: Date.now(),
     };
 
-    // Filter out bad values
     if (
       entry.spo2 <= 0 ||
       entry.heartRate <= 0 ||
       entry.spo2 > 100 ||
       entry.heartRate > 250
     ) {
-      console.warn("⚠️ Out-of-range reading:", entry);
+      console.warn("⚠️ Out-of-range reading ignored");
       return Response.json({ ok: false, skipped: true });
     }
 
@@ -51,16 +49,25 @@ export async function POST(req) {
     if (store.history.length > 10000) store.history.shift();
 
     return Response.json({ ok: true }, { status: 201 });
-  } catch (e) {
-    console.error("POST Error:", e);
-    return Response.json({ ok: false, error: e.message }, { status: 400 });
+  } catch (err) {
+    console.error("POST Error:", err);
+    return Response.json({ ok: false, error: err.message }, { status: 400 });
   }
 }
 
 export async function GET() {
-  return Response.json({
-    ok: true,
-    latest: store.latest,
-    history: store.history.slice(-300),
-  });
+  try {
+    return Response.json(
+      {
+        ok: true,
+        latest: store.latest,
+        history: store.history.slice(-300),
+      },
+      { status: 200 }
+    );
+  } catch (err) {
+    console.error("GET Error:", err);
+    return Response.json({ ok: false, error: err.message }, { status: 500 });
+  }
 }
+    
