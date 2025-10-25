@@ -11,14 +11,16 @@ export async function POST(req) {
       heartRate,
       tempC,
       tempF,
-      validHR,
-      validSPO2,
       device,
-      timestamp,
+      timestamp
     } = await req.json();
 
-    if (!validHR || !validSPO2) {
-      console.warn("⚠️ Ignored invalid reading");
+    // Validate incoming data
+    if (
+      spo2 == null || spo2 < 0 || spo2 > 100 ||
+      heartRate == null || heartRate <= 0 || heartRate > 250
+    ) {
+      console.warn("⚠️ Invalid or out-of-range reading ignored");
       return Response.json({ ok: false, skipped: true });
     }
 
@@ -27,22 +29,12 @@ export async function POST(req) {
       heartRate: Number(heartRate),
       tempC: Number(tempC),
       tempF: Number(tempF),
-      validHR: Boolean(validHR),
-      validSPO2: Boolean(validSPO2),
       device: device || "esp32-max30102",
       deviceTimestamp: timestamp || Date.now(),
       serverTimestamp: Date.now(),
+      validHR: true,
+      validSPO2: true
     };
-
-    if (
-      entry.spo2 <= 0 ||
-      entry.heartRate <= 0 ||
-      entry.spo2 > 100 ||
-      entry.heartRate > 250
-    ) {
-      console.warn("⚠️ Out-of-range reading ignored");
-      return Response.json({ ok: false, skipped: true });
-    }
 
     store.latest = entry;
     store.history.push(entry);
@@ -57,17 +49,13 @@ export async function POST(req) {
 
 export async function GET() {
   try {
-    return Response.json(
-      {
-        ok: true,
-        latest: store.latest,
-        history: store.history.slice(-300),
-      },
-      { status: 200 }
-    );
+    return Response.json({
+      ok: true,
+      latest: store.latest,
+      history: store.history.slice(-300)
+    }, { status: 200 });
   } catch (err) {
     console.error("GET Error:", err);
     return Response.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
-    

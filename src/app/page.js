@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -8,171 +6,154 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
-export default function Page() {
-  const [data, setData] = useState([]);
+
+const API_URL = "https://abhi.schema.cv/api/telemetry";
+
+export default function RealtimeHealthDashboard({ pollInterval = 3000 }) {
+  const [points, setPoints] = useState([]); // history for charts
   const [latest, setLatest] = useState(null);
-
-  const API_BASE =
-    typeof window !== "undefined" &&
-    window.location.hostname.includes("localhost")
-      ? "http://localhost:3000"
-      : "https://abhi.schema.cv";
-
-  // Fetch from backend every 2 seconds
-  const fetchData = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/telemetry`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      const json = text ? JSON.parse(text) : {};
-      if (json.ok) {
-        setData(json.history || []);
-        setLatest(json.latest || null);
-      }
-    } catch (err) {
-      console.error("Error fetching data:", err);
-    }
-  };
+  const [status, setStatus] = useState("idle");
+  const mounted = useRef(true);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    mounted.current = true;
+    const poll = async () => {
+      try {
+        setStatus("fetching");
+        const res = await fetch(API_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-  // Calculate heartbeat interval for animation
-  const heartRateInterval = latest?.heartRate
-    ? 60 / latest.heartRate
-    : 1;
+        // Expecting object like { heartRate, spo2, tempC, tempF, validHR, validSPO2, timestamp }
+        const point = {
+          time: new Date(data.timestamp || Date.now()).toLocaleTimeString(),
+          heartRate: Number(data.heartRate) || null,
+          spo2: Number(data.spo2) || null,
+          tempC: Number(data.tempC) || null,
+        };
+
+        if (!mounted.current) return;
+        setLatest(data);
+        setPoints((prev) => {
+          const next = [...prev, point].slice(-60); // keep last 60 points
+          return next;
+        });
+        setStatus("ok");
+      } catch (err) {
+        console.error("Fetch error", err);
+        if (!mounted.current) return;
+        setStatus("error");
+      }
+    };
+
+    poll(); // initial poll immediately
+    const id = setInterval(poll, pollInterval);
+    return () => {
+      mounted.current = false;
+      clearInterval(id);
+    };
+  }, [pollInterval]);
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 20 }}>
-      <h1 style={{ marginBottom: 16 }}>💓 MAX30102 Live Dashboard</h1>
-
-      {!latest ? (
-        <p style={{ color: "#666" }}>Waiting for sensor data...</p>
-      ) : (
-        <div
-          style={{
-            marginBottom: 20,
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 20,
-            background: "#f8fafc",
-            padding: 16,
-            borderRadius: 12,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-          }}
-        >
-          {/* Animated heart */}
-          <div
-            style={{
-              fontSize: 48,
-              animation: `pulse ${heartRateInterval}s infinite ease-in-out`,
-            }}
-          >
-            ❤️
+    <div className="min-h-screen p-6 bg-gray-50 text-gray-900">
+      <div className="max-w-6xl mx-auto">
+        <header className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-extrabold">Realtime Health Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-3 h-3 rounded-full ${
+                status === "ok"
+                  ? "bg-green-500"
+                  : status === "fetching"
+                  ? "bg-yellow-400 animate-pulse"
+                  : "bg-red-500"
+              }`}
+              title={`status: ${status}`}
+            />
+            <div className="text-sm text-gray-600">{status}</div>
           </div>
+        </header>
 
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card title="Heart Rate" value={latest && latest.heartRate ? latest.heartRate : "—"} unit="bpm" valid={latest && latest.validHR} />
+          <Card title="SpO₂" value={latest && latest.spo2 ? latest.spo2 : "—"} unit="%" valid={latest && latest.validSPO2} />
+          <Card title="Temperature" value={latest && latest.tempC ? latest.tempC.toFixed(2) : "—"} unit="°C" />
+        </section>
+
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Panel title="Heart Rate & SpO₂ (last points)">
+            <div style={{ width: "100%", height: 300 }}>
+              <ResponsiveContainer>
+                <LineChart data={points} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" minTickGap={20} />
+                  <YAxis yAxisId="left" domain={[30, 180]} />
+                  <YAxis yAxisId="right" orientation="right" domain={[85, 101]} />
+                  <Tooltip />
+                  <Legend />
+                  <Line yAxisId="left" type="monotone" dataKey="heartRate" stroke="#ff6b6b" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="spo2" stroke="#4f46e5" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Panel>
+
+          <Panel title="Temperature (°C)">
+            <div style={{ width: "100%", height: 300 }}>
+              <ResponsiveContainer>
+                <LineChart data={points} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" />
+                  <YAxis domain={[10, 45]} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="tempC" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Panel>
+        </section>
+
+        <footer className="mt-6 text-sm text-gray-600">
           <div>
-            <h3 style={{ margin: 0 }}>
-              SpO₂:{" "}
-              <span style={{ color: "crimson", fontWeight: "bold" }}>
-                {latest.spo2?.toFixed(1)} %
-              </span>
-              {" | "}
-              HR:{" "}
-              <span style={{ color: "royalblue", fontWeight: "bold" }}>
-                {latest.heartRate?.toFixed(1)} bpm
-              </span>
-            </h3>
-            <p style={{ margin: "4px 0" }}>
-              🌡 Temp:{" "}
-              <span style={{ color: "#16a34a", fontWeight: "bold" }}>
-                {latest.tempC?.toFixed(2)} °C / {latest.tempF?.toFixed(2)} °F
-              </span>
-            </p>
-            <p style={{ fontSize: 12, color: "#555" }}>
-              ✅ HR valid: {latest.validHR ? "Yes" : "No"} | ✅ SpO₂ valid:{" "}
-              {latest.validSPO2 ? "Yes" : "No"}
-              <br />
-              ⏱ Updated:{" "}
-              {new Date(latest.serverTimestamp).toLocaleTimeString()}
-            </p>
+            Latest timestamp: {latest ? new Date(latest.timestamp || Date.now()).toLocaleString() : "—"}
           </div>
+          <div className="mt-1">
+            Note: Ensure your API allows CORS for this dashboard (Access-Control-Allow-Origin).
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function Card({ title, value, unit, valid }) {
+  return (
+    <div className="bg-white shadow rounded-lg p-4">
+      <div className="text-sm text-gray-500">{title}</div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <div className="text-3xl font-bold">{value}</div>
+        {unit && <div className="text-sm text-gray-500">{unit}</div>}
+      </div>
+      {typeof valid !== "undefined" && (
+        <div className="mt-2 text-xs">
+          <span className={`px-2 py-1 rounded ${valid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+            {valid ? "Valid" : "Not validated"}
+          </span>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Charts */}
-      <div style={{ width: "100%", height: 400 }}>
-        <ResponsiveContainer>
-          <LineChart
-            data={data.map((d) => ({
-              time: new Date(d.serverTimestamp).toLocaleTimeString(),
-              spo2: d.spo2,
-              heartRate: d.heartRate,
-              tempC: d.tempC,
-            }))}
-            margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line
-              type="monotone"
-              dataKey="spo2"
-              stroke="#dc2626"
-              dot={false}
-              strokeWidth={2}
-              name="SpO₂ (%)"
-            />
-            <Line
-              type="monotone"
-              dataKey="heartRate"
-              stroke="#2563eb"
-              dot={false}
-              strokeWidth={2}
-              name="Heart Rate (bpm)"
-            />
-            <Line
-              type="monotone"
-              dataKey="tempC"
-              stroke="#16a34a"
-              dot={false}
-              strokeWidth={2}
-              name="Temperature (°C)"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* CSS animation */}
-      <style jsx>{`
-        @keyframes pulse {
-          0% {
-            transform: scale(1);
-          }
-          25% {
-            transform: scale(1.3);
-          }
-          50% {
-            transform: scale(1);
-          }
-          75% {
-            transform: scale(1.3);
-          }
-          100% {
-            transform: scale(1);
-          }
-        }
-      `}</style>
+function Panel({ title, children }) {
+  return (
+    <div className="bg-white shadow rounded-lg p-4">
+      <div className="text-sm text-gray-500 mb-3">{title}</div>
+      {children}
     </div>
   );
 }
