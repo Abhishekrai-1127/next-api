@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -12,222 +12,193 @@ import {
   Legend,
 } from "recharts";
 
-// ✅ Use relative path so it works with Next.js API route
 const API_URL = "/api/telemetry";
+const FETCH_TIMEOUT = 6000;
+const MAX_POINTS = 60;
 
-export default function RealtimeHealthDashboard({ pollInterval = 3000 }) {
-  const [points, setPoints] = useState([]);
+export default function Page() {
+  const [dataPoints, setDataPoints] = useState([]);
   const [latest, setLatest] = useState(null);
-  const [status, setStatus] = useState("idle");
-  const mounted = useRef(true);
+  const [error, setError] = useState(null);
+  const abortControllerRef = useRef(null);
 
-  // ✅ Simple validation helper
-  const isValidDataPoint = (data) =>
-    data &&
-    typeof data.heartRate === "number" &&
-    typeof data.spo2 === "number" &&
-    typeof data.tempC === "number";
+  const fetchTelemetry = useCallback(async () => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const timeout = setTimeout(() => {
+      if (!controller.signal.aborted) controller.abort("Fetch timeout exceeded");
+    }, FETCH_TIMEOUT);
+
+    try {
+      const res = await fetch(API_URL, { cache: "no-store", signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const json = await res.json();
+      if (!json.latest) throw new Error("Empty payload");
+
+      const payload = json.latest;
+
+      if (payload.mock) console.warn("🧩 MOCK DATA USED:", payload);
+      else console.log("✅ LIVE DATA RECEIVED:", payload);
+
+      const point = {
+        time: new Date(payload.timestamp || Date.now()).toLocaleTimeString(),
+        heartRate: payload.heartRate,
+        spo2: payload.spo2,
+        tempC: payload.tempC,
+        mock: payload.mock,
+      };
+
+      setLatest(payload);
+      setDataPoints((prev) => [...prev, point].slice(-MAX_POINTS));
+      setError(null);
+    } catch (err) {
+      clearTimeout(timeout);
+      console.error("❌ Fetch error:", err);
+
+      const mock = {
+        heartRate: Math.floor(60 + Math.random() * 40),
+        spo2: Math.floor(95 + Math.random() * 5),
+        tempC: (36 + Math.random() * 1.5).toFixed(2),
+        mock: true,
+        timestamp: Date.now(),
+      };
+
+      console.log("🧩 Using mock data:", mock);
+
+      const point = {
+        time: new Date(mock.timestamp).toLocaleTimeString(),
+        heartRate: mock.heartRate,
+        spo2: mock.spo2,
+        tempC: mock.tempC,
+        mock: true,
+      };
+
+      setLatest(mock);
+      setDataPoints((prev) => [...prev, point].slice(-MAX_POINTS));
+      setError("Using mock data (network error or timeout)");
+    }
+  }, []);
 
   useEffect(() => {
-    mounted.current = true;
-
-    const poll = async () => {
-      try {
-        setStatus("fetching");
-
-        const res = await fetch(API_URL, { cache: "no-store" });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-
-        const data = await res.json();
-
-        // ✅ Handle both /api/telemetry and direct ESP32-style JSON
-        const payload = data.latest || data;
-
-        if (!payload) {
-          console.warn("No data yet from API");
-          return;
-        }
-
-        if (!isValidDataPoint(payload)) {
-          console.warn("Invalid data format received", payload);
-          return;
-        }
-
-        const point = {
-          time: new Date(payload.timestamp || Date.now()).toLocaleTimeString(),
-          heartRate: payload.heartRate ?? null,
-          spo2: payload.spo2 ?? null,
-          tempC: payload.tempC ?? null,
-        };
-
-        if (!mounted.current) return;
-
-        setLatest(payload);
-        setPoints((prev) => [...prev.slice(-60), point]);
-        setStatus("ok");
-      } catch (err) {
-        console.error("Fetch error:", err);
-        if (!mounted.current) return;
-        setStatus("error");
-      }
-    };
-
-    poll();
-    const id = setInterval(poll, pollInterval);
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 5000);
     return () => {
-      mounted.current = false;
-      clearInterval(id);
+      clearInterval(interval);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [pollInterval]);
+  }, [fetchTelemetry]);
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50 text-gray-900">
-      <div className="max-w-6xl mx-auto">
-        <Header status={status} />
-
-        {/* Metric Cards */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <Card
-            title="Heart Rate"
-            value={latest && latest.heartRate ? latest.heartRate : "—"}
-            unit="bpm"
+    <div className="min-h-screen bg-gray-50 text-gray-900 p-6">
+      <header className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Realtime Health Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <div
+            className={`h-3 w-3 rounded-full ${
+              latest?.mock ? "bg-yellow-400" : "bg-green-500"
+            }`}
           />
-          <Card
-            title="SpO₂"
-            value={latest && latest.spo2 ? latest.spo2 : "—"}
-            unit="%"
-          />
-          <Card
-            title="Temperature"
-            value={
-              latest && latest.tempC ? latest.tempC.toFixed(2) : "—"
-            }
-            unit="°C"
-          />
-        </section>
+          <span className="text-sm font-medium">
+            {latest?.mock ? "Mock Data" : "Live Data"}
+          </span>
+        </div>
+      </header>
 
-        {/* Charts */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Panel title="Heart Rate & SpO₂ (recent)">
-            <ChartContainer>
-              <LineChart
-                data={points}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" minTickGap={20} />
-                <YAxis yAxisId="left" domain={[30, 180]} />
-                <YAxis yAxisId="right" orientation="right" domain={[85, 101]} />
-                <Tooltip />
-                <Legend />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="heartRate"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="spo2"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ChartContainer>
-          </Panel>
+      {error && (
+        <div className="mb-4 text-red-600 bg-red-50 border border-red-200 p-3 rounded">
+          {error}
+        </div>
+      )}
 
-          <Panel title="Temperature (°C)">
-            <ChartContainer>
-              <LineChart
-                data={points}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" />
-                <YAxis domain={[10, 45]} />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="tempC"
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ChartContainer>
-          </Panel>
-        </section>
+      {/* Metric cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Metric title="Heart Rate" value={latest?.heartRate ?? "—"} unit="bpm" />
+        <Metric title="SpO₂" value={latest?.spo2 ?? "—"} unit="%" />
+        <Metric title="Temperature" value={latest?.tempC ?? "—"} unit="°C" />
+      </div>
 
-        <Footer latest={latest} />
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ChartPanel title="Heart Rate & SpO₂">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={dataPoints}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis yAxisId="left" domain={[40, 180]} />
+              <YAxis yAxisId="right" orientation="right" domain={[90, 100]} />
+              <Tooltip />
+              <Legend />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="heartRate"
+                stroke="#ef4444"
+                name="Heart Rate (BPM)"
+                dot={false}
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="spo2"
+                stroke="#3b82f6"
+                name="SpO₂ (%)"
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+
+        <ChartPanel title="Temperature (°C)">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={dataPoints}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis domain={[20, 45]} />
+              <Tooltip />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="tempC"
+                stroke="#f59e0b"
+                name="Temperature (°C)"
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      </div>
+
+      <footer className="mt-6 text-sm text-gray-500 text-center">
+        Latest update:{" "}
+        {latest?.timestamp
+          ? new Date(latest.timestamp).toLocaleString()
+          : "No data yet"}
+      </footer>
+    </div>
+  );
+}
+
+function Metric({ title, value, unit }) {
+  return (
+    <div className="bg-white rounded-lg shadow p-4 text-center">
+      <div className="text-gray-500 text-sm">{title}</div>
+      <div className="mt-2 text-3xl font-bold">
+        {value} <span className="text-gray-400 text-lg">{unit}</span>
       </div>
     </div>
   );
 }
 
-/* ───────────────────────────── Components ───────────────────────────── */
-
-function Header({ status }) {
+function ChartPanel({ title, children }) {
   return (
-    <header className="flex items-center justify-between mb-6">
-      <h1 className="text-2xl font-extrabold">Realtime Health Dashboard</h1>
-      <div className="flex items-center gap-3">
-        <div
-          className={`w-3 h-3 rounded-full ${
-            status === "ok"
-              ? "bg-green-500"
-              : status === "fetching"
-              ? "bg-yellow-400 animate-pulse"
-              : "bg-red-500"
-          }`}
-          title={`status: ${status}`}
-        />
-        <div className="text-sm text-gray-600">{status}</div>
-      </div>
-    </header>
-  );
-}
-
-function Card({ title, value, unit }) {
-  return (
-    <div className="bg-white shadow rounded-lg p-4">
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <div className="text-3xl font-bold">{value}</div>
-        {unit && <div className="text-sm text-gray-500">{unit}</div>}
-      </div>
-    </div>
-  );
-}
-
-function Panel({ title, children }) {
-  return (
-    <div className="bg-white shadow rounded-lg p-4">
-      <div className="text-sm text-gray-500 mb-3">{title}</div>
+    <div className="bg-white rounded-lg shadow p-4">
+      <div className="text-gray-500 text-sm mb-2 font-medium">{title}</div>
       {children}
     </div>
-  );
-}
-
-function ChartContainer({ children }) {
-  return <div style={{ width: "100%", height: 300 }}>{children}</div>;
-}
-
-function Footer({ latest }) {
-  return (
-    <footer className="mt-6 text-sm text-gray-600">
-      <div>
-        Latest timestamp:{" "}
-        {latest
-          ? new Date(latest.timestamp || Date.now()).toLocaleString()
-          : "—"}
-      </div>
-      <div className="mt-1">
-        Note: This fetches data from your Next.js API at <b>/api/telemetry</b>.
-      </div>
-    </footer>
   );
 }

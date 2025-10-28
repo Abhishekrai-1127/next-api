@@ -1,61 +1,67 @@
-// app/api/telemetry/route.js
-let store = {
-  latest: null,
-  history: [],
-};
-
-export async function POST(req) {
-  try {
-    const {
-      spo2,
-      heartRate,
-      tempC,
-      tempF,
-      device,
-      timestamp
-    } = await req.json();
-
-    // Validate incoming data
-    if (
-      spo2 == null || spo2 < 0 || spo2 > 100 ||
-      heartRate == null || heartRate <= 0 || heartRate > 250
-    ) {
-      console.warn("⚠️ Invalid or out-of-range reading ignored");
-      return Response.json({ ok: false, skipped: true });
-    }
-
-    const entry = {
-      spo2: Number(spo2),
-      heartRate: Number(heartRate),
-      tempC: Number(tempC),
-      tempF: Number(tempF),
-      device: device || "esp32-max30102",
-      deviceTimestamp: timestamp || Date.now(),
-      serverTimestamp: Date.now(),
-      validHR: true,
-      validSPO2: true
-    };
-
-    store.latest = entry;
-    store.history.push(entry);
-    if (store.history.length > 10000) store.history.shift();
-
-    return Response.json({ ok: true }, { status: 201 });
-  } catch (err) {
-    console.error("POST Error:", err);
-    return Response.json({ ok: false, error: err.message }, { status: 400 });
-  }
-}
+import { NextResponse } from "next/server";
+import { connectDB } from "../../../../lib/mongodb";
+import Telemetry from "../../../../models/Telemetry";
 
 export async function GET() {
   try {
-    return Response.json({
-      ok: true,
-      latest: store.latest,
-      history: store.history.slice(-300)
-    }, { status: 200 });
-  } catch (err) {
-    console.error("GET Error:", err);
-    return Response.json({ ok: false, error: err.message }, { status: 500 });
+    await connectDB();
+
+    // Get latest data from DB
+    const latest = await Telemetry.findOne().sort({ createdAt: -1 });
+
+    if (!latest) {
+      console.warn("⚠️ No data in DB — returning mock data");
+
+      const mockData = {
+        heartRate: 75,
+        spo2: 98,
+        tempC: 36.8,
+        tempF: 98.2,
+        validHR: true,
+        validSPO2: true,
+        device: "mock-device",
+        deviceTimestamp: Date.now(),
+        mock: true,
+      };
+
+      // Optionally insert mock into DB
+      await Telemetry.create(mockData);
+
+      return NextResponse.json({ ok: true, latest: mockData });
+    }
+
+    return NextResponse.json({ ok: true, latest });
+  } catch (error) {
+    console.error("❌ API Error:", error);
+
+    // Return mock data on error
+    const mockData = {
+      heartRate: 70,
+      spo2: 97,
+      tempC: 36.5,
+      tempF: 97.7,
+      validHR: true,
+      validSPO2: true,
+      device: "mock-device",
+      deviceTimestamp: Date.now(),
+      mock: true,
+    };
+
+    return NextResponse.json({ ok: true, latest: mockData });
+  }
+}
+
+export async function POST(req) {
+  try {
+    await connectDB();
+    const data = await req.json();
+
+    const saved = await Telemetry.create({ ...data, mock: false });
+    console.log("✅ Data stored in DB:", saved._id);
+
+    return NextResponse.json({ ok: true, saved });
+  } catch (error) {
+    console.error("❌ Error saving data:", error);
+    return NextResponse.json({ ok: false, error: error.message });
   }
 }
