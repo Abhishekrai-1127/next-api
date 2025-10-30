@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "../../../../lib/mongodb";
-import Telemetry from "../../../../models/Telemetry";
+import connectDB from "@/lib/mongodb";
+import Telemetry from "@/models/Telemetry";
 
 export async function GET() {
   try {
     await connectDB();
-
-    // Get latest data from DB
     const latest = await Telemetry.findOne().sort({ createdAt: -1 });
 
     if (!latest) {
-      console.warn("⚠️ No data in DB — returning mock data");
+      console.warn("⚠️ No data found — returning mock data.");
 
       const mockData = {
         heartRate: 75,
@@ -24,7 +22,6 @@ export async function GET() {
         mock: true,
       };
 
-      // Optionally insert mock into DB
       await Telemetry.create(mockData);
 
       return NextResponse.json({ ok: true, latest: mockData });
@@ -32,9 +29,8 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, latest });
   } catch (error) {
-    console.error("❌ API Error:", error);
+    console.error("❌ GET API Error:", error);
 
-    // Return mock data on error
     const mockData = {
       heartRate: 70,
       spo2: 97,
@@ -56,12 +52,16 @@ export async function POST(req) {
     await connectDB();
     const data = await req.json();
 
+    if (!data.heartRate || !data.spo2 || !data.tempC) {
+      return NextResponse.json({ ok: false, error: "Missing vital data fields." }, { status: 400 });
+    }
+
     const saved = await Telemetry.create({ ...data, mock: false });
     console.log("✅ Data stored in DB:", saved._id);
 
     return NextResponse.json({ ok: true, saved });
   } catch (error) {
-    console.error("❌ Error saving data:", error);
-    return NextResponse.json({ ok: false, error: error.message });
+    console.error("❌ POST API Error:", error);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 }

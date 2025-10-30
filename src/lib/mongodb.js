@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://Abhishekrai1127:Abhii^1001@healthcluster.xeazxdx.mongodb.net/?appName=HealthCluster";
+const MONGODB_URI =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://Abhishekrai1127:Abhii^1001@healthcluster.xeazxdx.mongodb.net/?appName=HealthCluster";
 
 if (!MONGODB_URI) {
   throw new Error("❌ MONGODB_URI is not defined in environment variables");
@@ -23,3 +25,5 @@ export async function connectDB() {
     console.error("❌ MongoDB connection error:", error);
   }
 }
+
+export default connectDB;
