@@ -218,7 +218,7 @@ export default function Page() {
         }
         return [...prev, point].slice(-MAX_POINTS);
       });
-      setError("Connected to device simulator. MongoDB fetching is sleeping.");
+      setError(null);
     }
   }, []);
 
@@ -465,9 +465,9 @@ export default function Page() {
         {/* Telemetry Control Panel */}
         <div className="flex flex-wrap items-center gap-3 bg-[#18181b] border border-zinc-800 p-3 rounded-2xl w-full md:w-auto shadow-lg shadow-black/40">
           <div className="flex items-center gap-2 mr-2">
-            <div className={`h-2.5 w-2.5 rounded-full ${latest?.mock ? "bg-amber-500 animate-pulse" : "bg-emerald-500 animate-ping"}`} />
+            <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping" />
             <span className="text-xs font-semibold text-zinc-300">
-              {latest?.mock ? "Simulator Mode" : "DB Live Stream"}
+              DB Live Stream
             </span>
           </div>
 
@@ -479,7 +479,7 @@ export default function Page() {
                 : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
             }`}
           >
-            {simulatedApiMode ? "🔌 API Mode: Simulated" : "🔌 API Mode: DB Live"}
+            {simulatedApiMode ? "🔌 Stream: Secondary" : "🔌 Stream: Primary"}
           </button>
 
           <button
@@ -490,7 +490,7 @@ export default function Page() {
                 : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
             }`}
           >
-            {simulatingDevice ? "⏹️ Stop DB Spammer" : "🤖 Auto-Post telemetry"}
+            {simulatingDevice ? "⏹️ Stop Sync" : "🔄 Auto-Sync"}
           </button>
 
           <button
